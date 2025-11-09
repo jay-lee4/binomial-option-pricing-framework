@@ -2,6 +2,7 @@ import streamlit as st
 import numpy as np
 from config.settings import DEFAULT_PARAMS
 from components.sidebar import render_sidebar
+from components.results_display import display_pricing_results, display_summary_metrics
 from src.models import cox_ross_rubinstein, steve_shreve, drift_adjusted
 from src.gbm import GBM
 from src.payouts import IronCondorPayout, StraddlePayout, StranglePayout
@@ -148,7 +149,6 @@ def calculate_prices(inputs):
     n_paths = inputs["n_paths"]
     strategy = inputs["strategy"]
     
-    # Map strategy name to payout name
     payout_map = {
         "Iron Condor": "iron_condor",
         "Straddle": "straddle",
@@ -156,16 +156,13 @@ def calculate_prices(inputs):
     }
     payout_name = payout_map[strategy]
     
-    # Calculate option prices for each strike using all three models
     results = {
         "CRR": {},
         "Steve Shreve": {},
         "Drift-Adjusted": {}
     }
     
-    # Price all strikes with each model
     for strike, strike_name in [(K1, "K1"), (K2, "K2"), (K3, "K3"), (K4, "K4")]:
-        # Determine option type based on strike position
         if strategy == "Iron Condor":
             option_type = "P" if strike_name in ["K1", "K2"] else "C"
         elif strategy == "Straddle":
@@ -177,9 +174,7 @@ def calculate_prices(inputs):
         results["Steve Shreve"][strike_name] = steve_shreve(S, strike, T, r, sigma, N, option_type)
         results["Drift-Adjusted"][strike_name] = drift_adjusted(S, strike, T, r, sigma, mu, N, option_type)
     
-    # Calculate initial capital for each model based on strategy
     if strategy == "Iron Condor":
-        # Iron Condor: Sell K2 put + Sell K3 call - Buy K1 put - Buy K4 call
         results["CRR"]["Initial Capital"] = (
             results["CRR"]["K2"] + results["CRR"]["K3"] - 
             results["CRR"]["K1"] - results["CRR"]["K4"]
@@ -193,22 +188,18 @@ def calculate_prices(inputs):
             results["Drift-Adjusted"]["K1"] - results["Drift-Adjusted"]["K4"]
         )
     elif strategy == "Straddle":
-        # Straddle: Buy call + Buy put (cost, not premium received)
         results["CRR"]["Initial Capital"] = -(results["CRR"]["K1"] * 2)
         results["Steve Shreve"]["Initial Capital"] = -(results["Steve Shreve"]["K1"] * 2)
         results["Drift-Adjusted"]["Initial Capital"] = -(results["Drift-Adjusted"]["K1"] * 2)
     elif strategy == "Strangle":
-        # Strangle: Buy put + Buy call (cost, not premium received)
         results["CRR"]["Initial Capital"] = -(results["CRR"]["K1"] + results["CRR"]["K2"])
         results["Steve Shreve"]["Initial Capital"] = -(results["Steve Shreve"]["K1"] + results["Steve Shreve"]["K2"])
         results["Drift-Adjusted"]["Initial Capital"] = -(results["Drift-Adjusted"]["K1"] + results["Drift-Adjusted"]["K2"])
     
-    # Run GBM simulation
     gbm = GBM(mu=mu, sigma=sigma, n_steps=N, n_paths=n_paths, S0=S, T=T)
     paths = gbm.get_all_paths()
     final_prices = gbm.get_final_prices()
     
-    # Calculate payouts from GBM simulation
     if strategy == "Iron Condor":
         payout_calc = IronCondorPayout(K1, K2, K3, K4)
     elif strategy == "Straddle":
@@ -219,12 +210,10 @@ def calculate_prices(inputs):
     payout_values = payout_calc.calculate_payout(final_prices)
     avg_payout = np.mean(payout_values)
     
-    # Calculate expected value from GBM for each model
     results["CRR"]["GBM Expected Value"] = results["CRR"]["Initial Capital"] - avg_payout
     results["Steve Shreve"]["GBM Expected Value"] = results["Steve Shreve"]["Initial Capital"] - avg_payout
     results["Drift-Adjusted"]["GBM Expected Value"] = results["Drift-Adjusted"]["Initial Capital"] - avg_payout
     
-    # Store simulation data
     results["simulation"] = {
         "paths": paths,
         "final_prices": final_prices,
@@ -251,16 +240,10 @@ def main():
     if "results" not in st.session_state:
         st.session_state.results = None
     
-    # Render sidebar and get inputs
     inputs = render_sidebar()
-    
-    # Store inputs in session state
     st.session_state.inputs = inputs
     
-    # Calculate button
     if st.sidebar.button("Calculate", type="primary"):
-        st.session_state.calculated = True
-        st.rerun()
         with st.spinner("Calculating prices and running simulations..."):
             try:
                 results = calculate_prices(inputs)
@@ -270,61 +253,43 @@ def main():
             except Exception as e:
                 st.error(f"Calculation error: {str(e)}")
     
-    # Main content area
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        if st.session_state.calculated:
-            st.success("Calculation complete! Results will appear here.")
-        if st.session_state.calculated and st.session_state.results:
-            st.success("Calculation complete!")
-            
-            # Display selected parameters
-            st.subheader("Selected Parameters")
-            param_col1, param_col2, param_col3 = st.columns(3)
-            with param_col1:
-                st.metric("Strategy", inputs["strategy"])
-                st.metric("Stock Price", f"${inputs['S']:.2f}")
-            with param_col2:
-                st.metric("Volatility", f"{inputs['sigma']*100:.1f}%")
-                st.metric("Risk-Free Rate", f"{inputs['r']*100:.1f}%")
-            with param_col3:
-                st.metric("Expected Return", f"{inputs['mu']*100:.1f}%")
-                st.metric("Time to Expiry", f"{inputs['T']:.2f} years")
-            
-            st.subheader("Pricing Results")
-            st.write("Results tables will appear in the next push")
-        else:
-            st.info("Configure your parameters in the sidebar and click Calculate to begin")
-            
+    if st.session_state.calculated and st.session_state.results:
+        st.success("Calculation complete!")
+        
+        st.subheader("Selected Parameters")
+        param_col1, param_col2, param_col3 = st.columns(3)
+        with param_col1:
+            st.metric("Strategy", inputs["strategy"])
+            st.metric("Stock Price", f"${inputs['S']:.2f}")
+        with param_col2:
+            st.metric("Volatility", f"{inputs['sigma']*100:.1f}%")
+            st.metric("Risk-Free Rate", f"{inputs['r']*100:.1f}%")
+        with param_col3:
+            st.metric("Expected Return", f"{inputs['mu']*100:.1f}%")
+            st.metric("Time to Expiry", f"{inputs['T']:.2f} years")
+        
+        st.divider()
+        
+        display_pricing_results(st.session_state.results)
+        
+        st.divider()
+        
+        display_summary_metrics(st.session_state.results, inputs)
+        
+    else:
+        st.info("Configure your parameters in the sidebar and click Calculate to begin")
+        
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
             st.markdown("""
                 ### What this simulator does
                 
                 This tool helps you understand the critical difference between theoretical option pricing 
-                and real-world profitability:
-                
-                **Risk-Neutral Pricing (Q-measure)**
-                - Uses risk-free rate for fair market valuation
-                - Ensures no-arbitrage pricing
-                - Standard Black-Scholes framework
-                
-                **Real-World Analysis (P-measure)**
-                - Uses actual expected returns (drift)
-                - Calculates true profit expectations
-                - Reveals if strategies are actually profitable
-                
-                ### Models Included
-                
-                - **Cox-Ross-Rubinstein**: Standard exponential binomial tree
-                - **Steve Shreve**: Linear approximation with symmetric probabilities  
-                - **Drift-Adjusted**: Incorporates real-world drift in tree construction
                 and real-world profitability.
             """)
-    
-    with col2:
-        if st.session_state.calculated:
-            st.info("Analysis complete")
-        else:
+        
+        with col2:
             st.markdown("""
                 ### Quick Start
                 
@@ -332,7 +297,6 @@ def main():
                 2. Set strike prices
                 3. Configure market parameters
                 4. Click Calculate
-                5. Analyze Q vs P measure results
                 5. Analyze results
             """)
 
