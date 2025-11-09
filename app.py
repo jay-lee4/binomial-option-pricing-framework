@@ -2,7 +2,12 @@ import streamlit as st
 import numpy as np
 from config.settings import DEFAULT_PARAMS
 from components.sidebar import render_sidebar
-from components.results_display import display_pricing_results, display_summary_metrics
+from components.results_display import (
+    display_pricing_results, 
+    display_summary_metrics,
+    display_q_vs_p_comparison,
+    display_profitability_insight
+)
 from src.models import cox_ross_rubinstein, steve_shreve, drift_adjusted
 from src.gbm import GBM
 from src.payouts import IronCondorPayout, StraddlePayout, StranglePayout
@@ -162,7 +167,6 @@ def calculate_prices(inputs):
         "Drift-Adjusted": {}
     }
     
-    # Calculate option prices for each strike
     for strike, strike_name in [(K1, "K1"), (K2, "K2"), (K3, "K3"), (K4, "K4")]:
         if strategy == "Iron Condor":
             option_type = "P" if strike_name in ["K1", "K2"] else "C"
@@ -175,7 +179,6 @@ def calculate_prices(inputs):
         results["Steve Shreve"][strike_name] = steve_shreve(S, strike, T, r, sigma, N, option_type)
         results["Drift-Adjusted"][strike_name] = drift_adjusted(S, strike, T, r, sigma, mu, N, option_type)
     
-    # Calculate initial capital based on strategy
     if strategy == "Iron Condor":
         results["CRR"]["Initial Capital"] = (
             results["CRR"]["K2"] + results["CRR"]["K3"] - 
@@ -198,12 +201,10 @@ def calculate_prices(inputs):
         results["Steve Shreve"]["Initial Capital"] = -(results["Steve Shreve"]["K1"] + results["Steve Shreve"]["K2"])
         results["Drift-Adjusted"]["Initial Capital"] = -(results["Drift-Adjusted"]["K1"] + results["Drift-Adjusted"]["K2"])
     
-    # Run GBM simulation
     gbm = GBM(mu=mu, sigma=sigma, n_steps=N, n_paths=n_paths, S0=S, T=T)
     paths = gbm.get_all_paths()
     final_prices = gbm.get_final_prices()
     
-    # Calculate payouts from GBM simulation
     if strategy == "Iron Condor":
         payout_calc = IronCondorPayout(K1, K2, K3, K4)
     elif strategy == "Straddle":
@@ -214,17 +215,14 @@ def calculate_prices(inputs):
     payout_values = payout_calc.calculate_payout(final_prices)
     avg_payout = np.mean(payout_values)
     
-    # Calculate GBM expected value (Q-measure from simulation)
     results["CRR"]["GBM Expected Value"] = results["CRR"]["Initial Capital"] - avg_payout
     results["Steve Shreve"]["GBM Expected Value"] = results["Steve Shreve"]["Initial Capital"] - avg_payout
     results["Drift-Adjusted"]["GBM Expected Value"] = results["Drift-Adjusted"]["Initial Capital"] - avg_payout
     
-    # Real-world probability analysis (P-measure)
     crr_rw = CoxRossRubinsteinRW(S, mu, r, sigma, T, N, K1, K2, K3, K4)
     shreve_rw = SteveShreveRW(S, mu, r, sigma, T, N, K1, K2, K3, K4)
     drift_rw = DriftAdjustedRW(S, mu, r, sigma, T, N, K1, K2, K3, K4)
     
-    # Calculate RW expected profits
     results["CRR"]["RW Expected Value"] = crr_rw.get_exp_profits(
         results["CRR"]["Initial Capital"], 
         payout_name
@@ -238,7 +236,6 @@ def calculate_prices(inputs):
         payout_name
     )
     
-    # Calculate probability of profit (only for Iron Condor)
     if strategy == "Iron Condor":
         results["CRR"]["Probability of Profit"] = crr_rw.get_prob_profit()
         results["Steve Shreve"]["Probability of Profit"] = shreve_rw.get_prob_profit()
@@ -248,7 +245,6 @@ def calculate_prices(inputs):
         results["Steve Shreve"]["Probability of Profit"] = None
         results["Drift-Adjusted"]["Probability of Profit"] = None
     
-    # Store simulation data
     results["simulation"] = {
         "paths": paths,
         "final_prices": final_prices,
@@ -310,6 +306,14 @@ def main():
         st.divider()
         
         display_summary_metrics(st.session_state.results, inputs)
+        
+        st.divider()
+        
+        display_q_vs_p_comparison(st.session_state.results, inputs)
+        
+        st.divider()
+        
+        display_profitability_insight(st.session_state.results, inputs)
         
     else:
         st.info("Configure your parameters in the sidebar and click Calculate to begin")
