@@ -1,6 +1,11 @@
 import streamlit as st
+import numpy as np
 from config.settings import DEFAULT_PARAMS
 from components.sidebar import render_sidebar
+from src.models import cox_ross_rubinstein, steve_shreve, drift_adjusted
+from src.gbm import GBM
+from src.payouts import IronCondorPayout, StraddlePayout, StranglePayout
+from src.analytics import CoxRossRubinsteinRW, SteveShreveRW, DriftAdjustedRW
 
 
 def setup_page_config():
@@ -120,6 +125,115 @@ def apply_custom_css():
     """, unsafe_allow_html=True)
 
 
+def calculate_prices(inputs):
+    """
+    Calculate option prices and expected values for all models.
+    
+    Args:
+        inputs: Dictionary of user inputs from sidebar
+        
+    Returns:
+        Dictionary containing pricing results and simulation data
+    """
+    S = inputs["S"]
+    K1 = inputs["K1"]
+    K2 = inputs["K2"]
+    K3 = inputs["K3"]
+    K4 = inputs["K4"]
+    T = inputs["T"]
+    r = inputs["r"]
+    sigma = inputs["sigma"]
+    mu = inputs["mu"]
+    N = inputs["N"]
+    n_paths = inputs["n_paths"]
+    strategy = inputs["strategy"]
+    
+    # Map strategy name to payout name
+    payout_map = {
+        "Iron Condor": "iron_condor",
+        "Straddle": "straddle",
+        "Strangle": "strangle"
+    }
+    payout_name = payout_map[strategy]
+    
+    # Calculate option prices for each strike using all three models
+    results = {
+        "CRR": {},
+        "Steve Shreve": {},
+        "Drift-Adjusted": {}
+    }
+    
+    # Price all strikes with each model
+    for strike, strike_name in [(K1, "K1"), (K2, "K2"), (K3, "K3"), (K4, "K4")]:
+        # Determine option type based on strike position
+        if strategy == "Iron Condor":
+            option_type = "P" if strike_name in ["K1", "K2"] else "C"
+        elif strategy == "Straddle":
+            option_type = "C"
+        elif strategy == "Strangle":
+            option_type = "P" if strike_name == "K1" else "C"
+        
+        results["CRR"][strike_name] = cox_ross_rubinstein(S, strike, T, r, sigma, N, option_type)
+        results["Steve Shreve"][strike_name] = steve_shreve(S, strike, T, r, sigma, N, option_type)
+        results["Drift-Adjusted"][strike_name] = drift_adjusted(S, strike, T, r, sigma, mu, N, option_type)
+    
+    # Calculate initial capital for each model based on strategy
+    if strategy == "Iron Condor":
+        # Iron Condor: Sell K2 put + Sell K3 call - Buy K1 put - Buy K4 call
+        results["CRR"]["Initial Capital"] = (
+            results["CRR"]["K2"] + results["CRR"]["K3"] - 
+            results["CRR"]["K1"] - results["CRR"]["K4"]
+        )
+        results["Steve Shreve"]["Initial Capital"] = (
+            results["Steve Shreve"]["K2"] + results["Steve Shreve"]["K3"] - 
+            results["Steve Shreve"]["K1"] - results["Steve Shreve"]["K4"]
+        )
+        results["Drift-Adjusted"]["Initial Capital"] = (
+            results["Drift-Adjusted"]["K2"] + results["Drift-Adjusted"]["K3"] - 
+            results["Drift-Adjusted"]["K1"] - results["Drift-Adjusted"]["K4"]
+        )
+    elif strategy == "Straddle":
+        # Straddle: Buy call + Buy put (cost, not premium received)
+        results["CRR"]["Initial Capital"] = -(results["CRR"]["K1"] * 2)
+        results["Steve Shreve"]["Initial Capital"] = -(results["Steve Shreve"]["K1"] * 2)
+        results["Drift-Adjusted"]["Initial Capital"] = -(results["Drift-Adjusted"]["K1"] * 2)
+    elif strategy == "Strangle":
+        # Strangle: Buy put + Buy call (cost, not premium received)
+        results["CRR"]["Initial Capital"] = -(results["CRR"]["K1"] + results["CRR"]["K2"])
+        results["Steve Shreve"]["Initial Capital"] = -(results["Steve Shreve"]["K1"] + results["Steve Shreve"]["K2"])
+        results["Drift-Adjusted"]["Initial Capital"] = -(results["Drift-Adjusted"]["K1"] + results["Drift-Adjusted"]["K2"])
+    
+    # Run GBM simulation
+    gbm = GBM(mu=mu, sigma=sigma, n_steps=N, n_paths=n_paths, S0=S, T=T)
+    paths = gbm.get_all_paths()
+    final_prices = gbm.get_final_prices()
+    
+    # Calculate payouts from GBM simulation
+    if strategy == "Iron Condor":
+        payout_calc = IronCondorPayout(K1, K2, K3, K4)
+    elif strategy == "Straddle":
+        payout_calc = StraddlePayout(K1)
+    elif strategy == "Strangle":
+        payout_calc = StranglePayout(K1, K2)
+    
+    payout_values = payout_calc.calculate_payout(final_prices)
+    avg_payout = np.mean(payout_values)
+    
+    # Calculate expected value from GBM for each model
+    results["CRR"]["GBM Expected Value"] = results["CRR"]["Initial Capital"] - avg_payout
+    results["Steve Shreve"]["GBM Expected Value"] = results["Steve Shreve"]["Initial Capital"] - avg_payout
+    results["Drift-Adjusted"]["GBM Expected Value"] = results["Drift-Adjusted"]["Initial Capital"] - avg_payout
+    
+    # Store simulation data
+    results["simulation"] = {
+        "paths": paths,
+        "final_prices": final_prices,
+        "payout_values": payout_values
+    }
+    
+    return results
+
+
 def main():
     """Main application entry point."""
     setup_page_config()
@@ -147,6 +261,14 @@ def main():
     if st.sidebar.button("Calculate", type="primary"):
         st.session_state.calculated = True
         st.rerun()
+        with st.spinner("Calculating prices and running simulations..."):
+            try:
+                results = calculate_prices(inputs)
+                st.session_state.results = results
+                st.session_state.calculated = True
+                st.rerun()
+            except Exception as e:
+                st.error(f"Calculation error: {str(e)}")
     
     # Main content area
     col1, col2 = st.columns([2, 1])
@@ -154,6 +276,8 @@ def main():
     with col1:
         if st.session_state.calculated:
             st.success("Calculation complete! Results will appear here.")
+        if st.session_state.calculated and st.session_state.results:
+            st.success("Calculation complete!")
             
             # Display selected parameters
             st.subheader("Selected Parameters")
@@ -167,6 +291,9 @@ def main():
             with param_col3:
                 st.metric("Expected Return", f"{inputs['mu']*100:.1f}%")
                 st.metric("Time to Expiry", f"{inputs['T']:.2f} years")
+            
+            st.subheader("Pricing Results")
+            st.write("Results tables will appear in the next push")
         else:
             st.info("Configure your parameters in the sidebar and click Calculate to begin")
             
@@ -191,6 +318,7 @@ def main():
                 - **Cox-Ross-Rubinstein**: Standard exponential binomial tree
                 - **Steve Shreve**: Linear approximation with symmetric probabilities  
                 - **Drift-Adjusted**: Incorporates real-world drift in tree construction
+                and real-world profitability.
             """)
     
     with col2:
@@ -205,6 +333,7 @@ def main():
                 3. Configure market parameters
                 4. Click Calculate
                 5. Analyze Q vs P measure results
+                5. Analyze results
             """)
 
 
