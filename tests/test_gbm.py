@@ -1,5 +1,6 @@
 import pytest
 import numpy as np
+import pandas as pd
 from src.gbm import GBM
 
 
@@ -101,9 +102,79 @@ class TestGBMFinalPrices:
         np.testing.assert_array_equal(final_prices, paths[:, -1])
     
     def test_zero_volatility_deterministic(self):
-        """Zero volatility should give deterministic growth."""
         gbm = GBM(mu=0.05, sigma=0.0, n_steps=100, n_paths=5, S0=100, T=1.0)
         final_prices = gbm.get_final_prices()
         
         expected = 100 * np.exp(0.05 * 1.0)
         np.testing.assert_array_almost_equal(final_prices, expected, decimal=5)
+
+
+class TestGBMDataFrame:
+    
+    def test_to_dataframe_shape(self):
+        gbm = GBM(mu=0.08, sigma=0.2, n_steps=100, n_paths=10, S0=100, T=1.0)
+        df = gbm.to_dataframe()
+        assert df.shape == (101, 10)
+    
+    def test_to_dataframe_index(self):
+        gbm = GBM(mu=0.08, sigma=0.2, n_steps=100, n_paths=10, S0=100, T=1.0)
+        df = gbm.to_dataframe()
+        assert df.index.name == "Time"
+        assert df.index[0] == 0.0
+        assert df.index[-1] == 1.0
+    
+    def test_to_dataframe_columns(self):
+        gbm = GBM(mu=0.08, sigma=0.2, n_steps=100, n_paths=5, S0=100, T=1.0)
+        df = gbm.to_dataframe()
+        expected_columns = ["Path_1", "Path_2", "Path_3", "Path_4", "Path_5"]
+        assert list(df.columns) == expected_columns
+    
+    def test_to_dataframe_values_match_paths(self):
+        gbm = GBM(mu=0.08, sigma=0.2, n_steps=100, n_paths=5, S0=100, T=1.0)
+        paths = gbm.get_all_paths()
+        df = gbm.to_dataframe()
+        np.testing.assert_array_almost_equal(df.values, paths.T)
+    
+    def test_to_dataframe_type(self):
+        gbm = GBM(mu=0.08, sigma=0.2, n_steps=100, n_paths=5, S0=100, T=1.0)
+        df = gbm.to_dataframe()
+        assert isinstance(df, pd.DataFrame)
+
+
+class TestGBMStatistics:
+    
+    def test_get_statistics_keys(self):
+        gbm = GBM(mu=0.08, sigma=0.2, n_steps=100, n_paths=100, S0=100, T=1.0)
+        stats = gbm.get_statistics()
+        
+        expected_keys = {
+            "mean_final_price",
+            "std_final_price",
+            "min_final_price",
+            "max_final_price",
+            "median_final_price",
+            "mean_return",
+            "std_return"
+        }
+        assert set(stats.keys()) == expected_keys
+    
+    def test_statistics_values_reasonable(self):
+        np.random.seed(42)
+        gbm = GBM(mu=0.08, sigma=0.2, n_steps=100, n_paths=1000, S0=100, T=1.0)
+        stats = gbm.get_statistics()
+        
+        assert stats["mean_final_price"] > 100
+        assert stats["std_final_price"] > 0
+        assert stats["min_final_price"] < stats["mean_final_price"]
+        assert stats["max_final_price"] > stats["mean_final_price"]
+        assert stats["median_final_price"] > 0
+    
+    def test_zero_volatility_statistics(self):
+        gbm = GBM(mu=0.05, sigma=0.0, n_steps=100, n_paths=10, S0=100, T=1.0)
+        stats = gbm.get_statistics()
+        
+        expected_price = 100 * np.exp(0.05 * 1.0)
+        assert abs(stats["mean_final_price"] - expected_price) < 0.01
+        assert stats["std_final_price"] < 0.01
+        assert abs(stats["min_final_price"] - expected_price) < 0.01
+        assert abs(stats["max_final_price"] - expected_price) < 0.01
