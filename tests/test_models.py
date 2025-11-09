@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from src.models import cox_ross_rubinstein
+from src.models import cox_ross_rubinstein, steve_shreve, drift_adjusted
 
 
 class TestCoxRossRubinstein:
@@ -81,3 +81,116 @@ class TestCoxRossRubinstein:
             S=100, K=100, T=1.0, r=0.05, sigma=0.2, N=1000, option_type='C'
         )
         assert 9.5 < price < 11.5
+
+
+class TestSteveShreve:
+    
+    def test_call_option_basic(self):
+        price = steve_shreve(
+            S=100, K=100, T=1.0, r=0.05, sigma=0.2, N=100, option_type='C'
+        )
+        assert price > 0
+    
+    def test_put_option_basic(self):
+        price = steve_shreve(
+            S=100, K=100, T=1.0, r=0.05, sigma=0.2, N=100, option_type='P'
+        )
+        assert price > 0
+    
+    def test_call_itm(self):
+        price = steve_shreve(
+            S=110, K=100, T=1.0, r=0.05, sigma=0.2, N=100, option_type='C'
+        )
+        assert price > 10.0
+    
+    def test_put_call_parity(self):
+        S, K, T, r, sigma, N = 100, 100, 1.0, 0.05, 0.2, 200
+        
+        call = steve_shreve(S, K, T, r, sigma, N, 'C')
+        put = steve_shreve(S, K, T, r, sigma, N, 'P')
+        
+        lhs = call - put
+        rhs = S - K * np.exp(-r * T)
+        
+        assert abs(lhs - rhs) < 0.5
+    
+    def test_invalid_option_type(self):
+        with pytest.raises(ValueError):
+            steve_shreve(
+                S=100, K=100, T=1.0, r=0.05, sigma=0.2, N=100, option_type='X'
+            )
+
+
+class TestDriftAdjusted:
+    
+    def test_call_option_basic(self):
+        price = drift_adjusted(
+            S=100, K=100, T=1.0, r=0.05, sigma=0.2, mu=0.08, N=100, option_type='C'
+        )
+        assert price > 0
+    
+    def test_put_option_basic(self):
+        price = drift_adjusted(
+            S=100, K=100, T=1.0, r=0.05, sigma=0.2, mu=0.08, N=100, option_type='P'
+        )
+        assert price > 0
+    
+    def test_call_itm(self):
+        price = drift_adjusted(
+            S=110, K=100, T=1.0, r=0.05, sigma=0.2, mu=0.08, N=100, option_type='C'
+        )
+        assert price > 10.0
+    
+    def test_put_call_parity(self):
+        S, K, T, r, sigma, mu, N = 100, 100, 1.0, 0.05, 0.2, 0.08, 200
+        
+        call = drift_adjusted(S, K, T, r, sigma, mu, N, 'C')
+        put = drift_adjusted(S, K, T, r, sigma, mu, N, 'P')
+        
+        lhs = call - put
+        rhs = S - K * np.exp(-r * T)
+        
+        assert abs(lhs - rhs) < 0.5
+    
+    def test_different_drift_values(self):
+        """Different mu values should give different prices."""
+        params = dict(S=100, K=100, T=1.0, r=0.05, sigma=0.2, N=100, option_type='C')
+        
+        price_low = drift_adjusted(**params, mu=0.03)
+        price_high = drift_adjusted(**params, mu=0.10)
+        
+        assert price_low != price_high
+    
+    def test_invalid_option_type(self):
+        with pytest.raises(ValueError):
+            drift_adjusted(
+                S=100, K=100, T=1.0, r=0.05, sigma=0.2, mu=0.08, N=100, option_type='X'
+            )
+
+
+class TestModelComparison:
+    """Compare outputs across all three models."""
+    
+    def test_all_models_positive(self):
+        """All models should give positive ATM call prices."""
+        params = dict(S=100, K=100, T=1.0, r=0.05, sigma=0.2, N=100, option_type='C')
+        
+        crr = cox_ross_rubinstein(**params)
+        shreve = steve_shreve(**params)
+        drift = drift_adjusted(**params, mu=0.08)
+        
+        assert crr > 0
+        assert shreve > 0
+        assert drift > 0
+    
+    def test_models_in_similar_range(self):
+        """All models should give similar prices for reasonable parameters."""
+        params = dict(S=100, K=100, T=1.0, r=0.05, sigma=0.2, N=500, option_type='C')
+        
+        crr = cox_ross_rubinstein(**params)
+        shreve = steve_shreve(**params)
+        drift = drift_adjusted(**params, mu=0.05)
+        
+        # With mu=r, drift model should be close to others
+        assert abs(crr - shreve) < 2.0
+        assert abs(crr - drift) < 2.0
