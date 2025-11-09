@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from src.payouts import IronCondorPayout
+from src.payouts import IronCondorPayout, StraddlePayout, StranglePayout
 
 
 class TestIronCondorPayout:
@@ -96,4 +96,131 @@ class TestIronCondorPayout:
         # K3=105: in [K3, K4), payout = S-K3 = 105-105 = 0
         # K4=110: in [K4, inf), payout = K4-K3 = 5
         expected = np.array([5, 0, 0, 5])
+        np.testing.assert_array_equal(payouts, expected)
+
+class TestStraddlePayout:
+    
+    def test_initialization_valid(self):
+        straddle = StraddlePayout(K=100)
+        assert straddle.K == 100
+    
+    def test_initialization_invalid(self):
+        with pytest.raises(ValueError):
+            StraddlePayout(K=-100)
+        
+        with pytest.raises(ValueError):
+            StraddlePayout(K=0)
+    
+    def test_payout_at_strike(self):
+        straddle = StraddlePayout(K=100)
+        final_prices = np.array([100])
+        payouts = straddle.calculate_payout(final_prices)
+        
+        expected = np.array([0])
+        np.testing.assert_array_equal(payouts, expected)
+    
+    def test_payout_above_strike(self):
+        straddle = StraddlePayout(K=100)
+        final_prices = np.array([105, 110, 120])
+        payouts = straddle.calculate_payout(final_prices)
+        
+        expected = np.array([5, 10, 20])
+        np.testing.assert_array_equal(payouts, expected)
+    
+    def test_payout_below_strike(self):
+        straddle = StraddlePayout(K=100)
+        final_prices = np.array([95, 90, 80])
+        payouts = straddle.calculate_payout(final_prices)
+        
+        expected = np.array([5, 10, 20])
+        np.testing.assert_array_equal(payouts, expected)
+    
+    def test_payout_symmetry(self):
+        """Straddle should have symmetric payouts around strike."""
+        straddle = StraddlePayout(K=100)
+        final_prices = np.array([90, 95, 100, 105, 110])
+        payouts = straddle.calculate_payout(final_prices)
+        
+        expected = np.array([10, 5, 0, 5, 10])
+        np.testing.assert_array_equal(payouts, expected)
+    
+    def test_accepts_list_input(self):
+        straddle = StraddlePayout(K=100)
+        final_prices = [90, 100, 110]
+        payouts = straddle.calculate_payout(final_prices)
+        
+        assert isinstance(payouts, np.ndarray)
+        expected = np.array([10, 0, 10])
+        np.testing.assert_array_equal(payouts, expected)
+
+
+class TestStranglePayout:
+    
+    def test_initialization_valid(self):
+        strangle = StranglePayout(K_put=95, K_call=105)
+        assert strangle.K_put == 95
+        assert strangle.K_call == 105
+    
+    def test_initialization_invalid_ordering(self):
+        with pytest.raises(ValueError):
+            StranglePayout(K_put=105, K_call=95)
+        
+        with pytest.raises(ValueError):
+            StranglePayout(K_put=100, K_call=100)
+    
+    def test_initialization_invalid_negative(self):
+        with pytest.raises(ValueError):
+            StranglePayout(K_put=-95, K_call=105)
+        
+        with pytest.raises(ValueError):
+            StranglePayout(K_put=95, K_call=-105)
+    
+    def test_payout_between_strikes(self):
+        """Zero payout when price is between strikes."""
+        strangle = StranglePayout(K_put=95, K_call=105)
+        final_prices = np.array([96, 100, 104])
+        payouts = strangle.calculate_payout(final_prices)
+        
+        expected = np.array([0, 0, 0])
+        np.testing.assert_array_equal(payouts, expected)
+    
+    def test_payout_below_put_strike(self):
+        strangle = StranglePayout(K_put=95, K_call=105)
+        final_prices = np.array([85, 90, 94])
+        payouts = strangle.calculate_payout(final_prices)
+        
+        expected = np.array([10, 5, 1])
+        np.testing.assert_array_equal(payouts, expected)
+    
+    def test_payout_above_call_strike(self):
+        strangle = StranglePayout(K_put=95, K_call=105)
+        final_prices = np.array([106, 110, 115])
+        payouts = strangle.calculate_payout(final_prices)
+        
+        expected = np.array([1, 5, 10])
+        np.testing.assert_array_equal(payouts, expected)
+    
+    def test_payout_at_strikes(self):
+        strangle = StranglePayout(K_put=95, K_call=105)
+        final_prices = np.array([95, 105])
+        payouts = strangle.calculate_payout(final_prices)
+        
+        expected = np.array([0, 0])
+        np.testing.assert_array_equal(payouts, expected)
+    
+    def test_payout_all_zones(self):
+        strangle = StranglePayout(K_put=95, K_call=105)
+        final_prices = np.array([85, 95, 100, 105, 115])
+        payouts = strangle.calculate_payout(final_prices)
+        
+        expected = np.array([10, 0, 0, 0, 10])
+        np.testing.assert_array_equal(payouts, expected)
+    
+    def test_accepts_list_input(self):
+        strangle = StranglePayout(K_put=95, K_call=105)
+        final_prices = [90, 100, 110]
+        payouts = strangle.calculate_payout(final_prices)
+        
+        assert isinstance(payouts, np.ndarray)
+        expected = np.array([5, 0, 5])
         np.testing.assert_array_equal(payouts, expected)

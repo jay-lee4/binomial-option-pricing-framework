@@ -34,12 +34,6 @@ class IronCondorPayout:
         - K2 <= S < K3: payout = 0 (max profit zone)
         - K3 <= S < K4: payout = S - K3 (partial loss on call spread)
         - S >= K4: payout = K4 - K3 (max loss on call spread)
-        
-        Args:
-            final_prices: Array of final stock prices at expiration
-            
-        Returns:
-            Array of payout values (what we owe, not profit)
         """
         if isinstance(final_prices, list):
             final_prices = np.array(final_prices)
@@ -60,3 +54,73 @@ class IronCondorPayout:
         payouts[mask_5] = self.K4 - self.K3
         
         return payouts
+
+
+class StraddlePayout:
+    """
+    Long Straddle payout calculator.
+    
+    Structure: Buy call + buy put at same strike K
+    - Profits from large price movements in either direction
+    - Max loss = premium paid (not calculated here, just intrinsic value)
+    - Unlimited upside, large downside potential
+    """
+    
+    def __init__(self, K: float):
+        if K <= 0:
+            raise ValueError(f"Strike K must be positive, got {K}")
+        self.K = K
+    
+    def calculate_payout(self, final_prices: np.ndarray) -> np.ndarray:
+        """
+        Calculate payout at expiration.
+        
+        Payout = max(S - K, 0) + max(K - S, 0) = |S - K|
+        """
+        if isinstance(final_prices, list):
+            final_prices = np.array(final_prices)
+        
+        final_prices = np.asarray(final_prices)
+        
+        call_payout = np.maximum(0, final_prices - self.K)
+        put_payout = np.maximum(0, self.K - final_prices)
+        
+        return call_payout + put_payout
+
+
+class StranglePayout:
+    """
+    Long Strangle payout calculator.
+    
+    Structure: K_put < K_call
+    - Buy put at lower strike K_put
+    - Buy call at higher strike K_call
+    - Similar to straddle but cheaper, requires larger move to profit
+    """
+    
+    def __init__(self, K_put: float, K_call: float):
+        if K_put >= K_call:
+            raise ValueError(f"Put strike must be less than call strike, got {K_put} >= {K_call}")
+        if K_put <= 0 or K_call <= 0:
+            raise ValueError(f"Strikes must be positive, got {K_put}, {K_call}")
+        
+        self.K_put = K_put
+        self.K_call = K_call
+    
+    def calculate_payout(self, final_prices: np.ndarray) -> np.ndarray:
+        """
+        Calculate payout at expiration.
+        
+        Payout = max(K_put - S, 0) + max(S - K_call, 0)
+        - Profit when S < K_put or S > K_call
+        - Zero payout when K_put <= S <= K_call
+        """
+        if isinstance(final_prices, list):
+            final_prices = np.array(final_prices)
+        
+        final_prices = np.asarray(final_prices)
+        
+        put_payout = np.maximum(0, self.K_put - final_prices)
+        call_payout = np.maximum(0, final_prices - self.K_call)
+        
+        return put_payout + call_payout
