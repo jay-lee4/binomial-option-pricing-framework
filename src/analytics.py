@@ -1,6 +1,6 @@
 import numpy as np
 from abc import ABC, abstractmethod
-from .utils import n_choose
+from .utils import n_choose, prob_profit
 from .payouts import IronCondorPayout, StraddlePayout, StranglePayout
 
 
@@ -116,3 +116,112 @@ class RWProbs(ABC):
     def get_probs(self) -> np.ndarray:
         """Get probability distribution over final states."""
         pass
+
+
+class CoxRossRubinsteinRW(RWProbs):
+    """Real-world probability analysis using CRR tree parameters."""
+    
+    def __init__(
+        self,
+        S: float,
+        m: float,
+        r: float,
+        sigma: float,
+        T: float,
+        N: int,
+        K1: float,
+        K2: float,
+        K3: float,
+        K4: float
+    ):
+        super().__init__("Cox-Ross-Rubinstein", S, m, r, sigma, T, N, K1, K2, K3, K4)
+        
+        self.u_star = np.exp(self.sigma * np.sqrt(self.T / self.N))
+        self.d_start = 1 / self.u_star
+    
+    def get_prob_profit(self) -> float:
+        """Calculate probability of profit for Iron Condor."""
+        return prob_profit(
+            self.S, self.N, self.u_star, self.d_start,
+            self.p, self.K1, self.K2, self.K3, self.K4
+        )
+    
+    def get_probs(self) -> np.ndarray:
+        """Get probability distribution over final states."""
+        range_ = np.arange(self.N + 1)
+        probs = (self.p ** (self.N - range_)) * (self.q ** range_)
+        return probs
+
+
+class SteveShreveRW(RWProbs):
+    """Real-world probability analysis using Steve Shreve tree parameters."""
+    
+    def __init__(
+        self,
+        S: float,
+        m: float,
+        r: float,
+        sigma: float,
+        T: float,
+        N: int,
+        K1: float,
+        K2: float,
+        K3: float,
+        K4: float
+    ):
+        super().__init__("Steve Shreve", S, m, r, sigma, T, N, K1, K2, K3, K4)
+        
+        temp = self.sigma * np.sqrt(self.T / self.N)
+        temp2 = 1 + self.r * (self.T / self.N)
+        self.u_star = temp2 + temp
+        self.d_start = temp2 - temp
+    
+    def get_prob_profit(self) -> float:
+        """Calculate probability of profit for Iron Condor."""
+        return prob_profit(
+            self.S, self.N, self.u_star, self.d_start,
+            self.p, self.K1, self.K2, self.K3, self.K4
+        )
+    
+    def get_probs(self) -> np.ndarray:
+        """Get probability distribution over final states."""
+        range_ = np.arange(self.N + 1)
+        probs = (self.p ** (self.N - range_)) * (self.q ** range_)
+        return probs
+
+
+class DriftAdjustedRW(RWProbs):
+    """Real-world probability analysis using drift-adjusted tree parameters."""
+    
+    def __init__(
+        self,
+        S: float,
+        m: float,
+        r: float,
+        sigma: float,
+        T: float,
+        N: int,
+        K1: float,
+        K2: float,
+        K3: float,
+        K4: float
+    ):
+        super().__init__("Drift-Adjusted", S, m, r, sigma, T, N, K1, K2, K3, K4)
+        
+        temp = self.sigma * np.sqrt(self.T / self.N)
+        temp2 = 1 + self.m * (self.T / self.N)
+        self.u_star = temp2 + temp
+        self.d_start = temp2 - temp
+    
+    def get_prob_profit(self) -> float:
+        """Calculate probability of profit for Iron Condor."""
+        return prob_profit(
+            self.S, self.N, self.u_star, self.d_start,
+            self.p, self.K1, self.K2, self.K3, self.K4
+        )
+    
+    def get_probs(self) -> np.ndarray:
+        """Get probability distribution over final states."""
+        range_ = np.arange(self.N + 1)
+        probs = (self.p ** (self.N - range_)) * (self.q ** range_)
+        return probs
