@@ -1,7 +1,11 @@
 import streamlit as st
 import numpy as np
 from config.settings import DEFAULT_PARAMS
-from components.charts import plot_gbm_paths
+from components.charts import (
+    plot_gbm_paths,
+    plot_payout_diagram,
+    plot_price_distribution
+)
 from components.sidebar import render_sidebar
 from components.results_display import (
     display_pricing_results, 
@@ -351,7 +355,23 @@ def main():
 
         st.divider()
         
+        # Calculate average initial capital across models for diagrams
+        avg_initial_capital = (
+            st.session_state.results["CRR"]["Initial Capital"] +
+            st.session_state.results["Steve Shreve"]["Initial Capital"] +
+            st.session_state.results["Drift-Adjusted"]["Initial Capital"]
+        ) / 3
+        
+        # Display all charts
         plot_gbm_paths(st.session_state.results["simulation"], inputs)
+        
+        st.divider()
+        
+        plot_payout_diagram(inputs, avg_initial_capital)
+        
+        st.divider()
+        
+        plot_price_distribution(st.session_state.results["simulation"], inputs, avg_initial_capital)
         
     else:
         st.info("Configure your parameters in the sidebar and click Calculate to begin")

@@ -1,7 +1,9 @@
 import streamlit as st
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import numpy as np
 import pandas as pd
+from scipy import stats
 
 
 def plot_gbm_paths(simulation_data, inputs):
@@ -39,7 +41,6 @@ def plot_gbm_paths(simulation_data, inputs):
             hovertemplate='Time: %{x:.2f}<br>Price: $%{y:.2f}<extra></extra>'
         ))
     
-    # Add strike price lines with legend
     fig.add_hline(
         y=K1, 
         line_dash="dash", 
@@ -76,7 +77,6 @@ def plot_gbm_paths(simulation_data, inputs):
         annotation_position="top left"
     )
     
-    # Add initial price line
     fig.add_hline(
         y=S,
         line_dash="solid",
@@ -86,7 +86,6 @@ def plot_gbm_paths(simulation_data, inputs):
         annotation_position="bottom left"
     )
     
-    # Add invisible traces for legend
     fig.add_trace(go.Scatter(
         x=[None], y=[None],
         mode='lines',
@@ -267,3 +266,152 @@ def plot_payout_diagram(inputs, initial_capital):
             st.metric("Breakeven Points", len(breakeven_indices))
         else:
             st.metric("Breakeven Points", "None")
+
+
+def plot_price_distribution(simulation_data, inputs, initial_capital):
+    """
+    Plot distribution of final prices with profit/loss regions.
+    
+    Args:
+        simulation_data: Dictionary containing paths and prices
+        inputs: Dictionary of user inputs
+        initial_capital: Premium collected/paid
+    """
+    st.subheader("Final Price Distribution")
+    
+    final_prices = simulation_data["final_prices"]
+    strategy = inputs["strategy"]
+    K1 = inputs["K1"]
+    K2 = inputs["K2"]
+    K3 = inputs["K3"]
+    K4 = inputs["K4"]
+    S = inputs["S"]
+    mu = inputs["mu"]
+    sigma = inputs["sigma"]
+    T = inputs["T"]
+    
+    # Calculate profit zones
+    from src.payouts import IronCondorPayout, StraddlePayout, StranglePayout
+    
+    if strategy == "Iron Condor":
+        payout_calc = IronCondorPayout(K1, K2, K3, K4)
+        profit_zone_lower = (K1 + K2) / 2
+        profit_zone_upper = (K3 + K4) / 2
+    elif strategy == "Straddle":
+        payout_calc = StraddlePayout(K1)
+        profit_zone_lower = None
+        profit_zone_upper = None
+    elif strategy == "Strangle":
+        payout_calc = StranglePayout(K1, K2)
+        profit_zone_lower = None
+        profit_zone_upper = None
+    
+    payouts = payout_calc.calculate_payout(final_prices)
+    profits = initial_capital - payouts
+    
+    # Categorize prices by profit/loss
+    profitable = final_prices[profits > 0]
+    unprofitable = final_prices[profits <= 0]
+    
+    fig = go.Figure()
+    
+    # Histogram for profitable prices
+    fig.add_trace(go.Histogram(
+        x=profitable,
+        name='Profitable',
+        marker_color='green',
+        opacity=0.7,
+        nbinsx=40
+    ))
+    
+    # Histogram for unprofitable prices
+    fig.add_trace(go.Histogram(
+        x=unprofitable,
+        name='Unprofitable',
+        marker_color='red',
+        opacity=0.7,
+        nbinsx=40
+    ))
+    
+    # Add theoretical lognormal distribution (KDE approximation)
+    x_range = np.linspace(final_prices.min(), final_prices.max(), 200)
+    
+    # Lognormal parameters from GBM
+    log_mean = np.log(S) + (mu - 0.5 * sigma**2) * T
+    log_std = sigma * np.sqrt(T)
+    
+    theoretical_pdf = stats.lognorm.pdf(x_range, s=log_std, scale=np.exp(log_mean))
+    
+    # Scale to match histogram
+    scale_factor = len(final_prices) * (x_range[1] - x_range[0])
+    theoretical_pdf_scaled = theoretical_pdf * scale_factor
+    
+    fig.add_trace(go.Scatter(
+        x=x_range,
+        y=theoretical_pdf_scaled,
+        mode='lines',
+        name='Theoretical Distribution',
+        line=dict(color='blue', width=2, dash='dash')
+    ))
+    
+    # Add strike price lines
+    if strategy == "Iron Condor":
+        fig.add_vline(x=K1, line_dash="dot", line_color="red", line_width=1)
+        fig.add_vline(x=K2, line_dash="dot", line_color="orange", line_width=1)
+        fig.add_vline(x=K3, line_dash="dot", line_color="orange", line_width=1)
+        fig.add_vline(x=K4, line_dash="dot", line_color="red", line_width=1)
+        
+        # Shade profit zone
+        if profit_zone_lower and profit_zone_upper:
+            fig.add_vrect(
+                x0=profit_zone_lower,
+                x1=profit_zone_upper,
+                fillcolor="lightgreen",
+                opacity=0.2,
+                layer="below",
+                line_width=0,
+                annotation_text="Profit Zone",
+                annotation_position="top"
+            )
+    
+    # Add current price line
+    fig.add_vline(
+        x=S,
+        line_dash="solid",
+        line_color="darkgreen",
+        line_width=2,
+        annotation_text=f"S0: ${S:.0f}",
+        annotation_position="top"
+    )
+    
+    fig.update_layout(
+        title="Distribution of Final Stock Prices",
+        xaxis_title="Final Stock Price ($)",
+        yaxis_title="Frequency",
+        template='plotly_white',
+        height=500,
+        barmode='stack',
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        )
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Display statistics
+    pct_profitable = (len(profitable) / len(final_prices)) * 100
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Profitable Outcomes", f"{pct_profitable:.1f}%")
+    with col2:
+        st.metric("Mean Profit", f"${np.mean(profits):.2f}")
+    with col3:
+        st.metric("Median Final Price", f"${np.median(final_prices):.2f}")
+    with col4:
+        st.metric("Theoretical Mean", f"${S * np.exp(mu * T):.2f}")
