@@ -37,6 +37,15 @@ from src.optimize import optimize_strikes
 from components.help_section import display_help_section, display_quick_reference
 from components.export_display import display_export_section
 
+# validation
+from src.validation import validate_all_inputs
+from components.error_display import (
+    display_validation_error,
+    display_calculation_error,
+    display_optimization_error,
+    display_warning_banner
+)
+
 
 def setup_page_config():
     """Configure Streamlit page settings."""
@@ -349,45 +358,57 @@ def main():
     optimize_button, grid_size = display_optimization_button(inputs)
     display_quick_reference()
     
-    # Calculate button
+    # Calculate button with validation
     if st.sidebar.button("Calculate", type="primary"):
-        with st.spinner("Calculating prices and running simulations..."):
-            try:
-                results = calculate_prices(inputs)
-                st.session_state.results = results
-                st.session_state.calculated = True
-                st.rerun()
-            except Exception as e:
-                st.error(f"Calculation error: {str(e)}")
+        # Validate inputs first
+        is_valid, error_message = validate_all_inputs(inputs)
+        
+        if not is_valid:
+            display_validation_error(error_message)
+        else:
+            with st.spinner("Calculating prices and running simulations..."):
+                try:
+                    results = calculate_prices(inputs)
+                    st.session_state.results = results
+                    st.session_state.calculated = True
+                    st.rerun()
+                except Exception as e:
+                    display_calculation_error(e)
     
-    # Optimization button logic
+    # Optimization button logic with validation
     if optimize_button:
         if not st.session_state.calculated or st.session_state.results is None:
             st.sidebar.error("Please calculate first before optimizing!")
         else:
-            with st.spinner(f"Optimizing strikes ({grid_size} grid)... This may take a few minutes."):
-                try:
-                    # Get simulation data
-                    final_prices = st.session_state.results["simulation"]["final_prices"]
-                    
-                    # Run optimization
-                    opt_results = optimize_strikes(
-                        S=inputs["S"],
-                        r=inputs["r"],
-                        T=inputs["T"],
-                        sigma=inputs["sigma"],
-                        mu=inputs["mu"],
-                        final_prices=final_prices,
-                        N=inputs["N"],
-                        grid_size=grid_size,
-                        payout_name='iron_condor'
-                    )
-                    
-                    st.session_state.opt_results = opt_results
-                    st.session_state.optimized = True
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Optimization error: {str(e)}")
+            # Validate before optimizing
+            is_valid, error_message = validate_all_inputs(inputs)
+            
+            if not is_valid:
+                display_validation_error(error_message)
+            else:
+                with st.spinner(f"Optimizing strikes ({grid_size} grid)... This may take a few minutes."):
+                    try:
+                        # Get simulation data
+                        final_prices = st.session_state.results["simulation"]["final_prices"]
+                        
+                        # Run optimization
+                        opt_results = optimize_strikes(
+                            S=inputs["S"],
+                            r=inputs["r"],
+                            T=inputs["T"],
+                            sigma=inputs["sigma"],
+                            mu=inputs["mu"],
+                            final_prices=final_prices,
+                            N=inputs["N"],
+                            grid_size=grid_size,
+                            payout_name='iron_condor'
+                        )
+                        
+                        st.session_state.opt_results = opt_results
+                        st.session_state.optimized = True
+                        st.rerun()
+                    except Exception as e:
+                        display_optimization_error(e)
     
     # Display results
     if st.session_state.calculated and st.session_state.results:
@@ -404,6 +425,16 @@ def main():
         with param_col3:
             st.metric("Expected Return", f"{inputs['mu']*100:.1f}%")
             st.metric("Time to Expiry", f"{inputs['T']:.2f} years")
+        
+        # Display warnings for edge cases
+        if inputs['sigma'] > 0.50:
+            display_warning_banner("High volatility detected. Results may be less reliable.")
+        
+        if inputs['mu'] - inputs['r'] > 0.10:
+            display_warning_banner("Large difference between expected return and risk-free rate. This may indicate aggressive assumptions.")
+        
+        if inputs['T'] < 0.08:  # Less than 1 month
+            display_warning_banner("Very short time to expiration. Option values may be highly sensitive to small changes.")
         
         st.divider()
         
