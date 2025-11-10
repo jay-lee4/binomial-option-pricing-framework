@@ -1,11 +1,10 @@
 import streamlit as st
 import numpy as np
+
+# Config imports
 from config.settings import DEFAULT_PARAMS
-from components.charts import (
-    plot_gbm_paths,
-    plot_payout_diagram,
-    plot_price_distribution
-)
+
+# Component imports
 from components.sidebar import render_sidebar
 from components.results_display import (
     display_pricing_results, 
@@ -13,10 +12,23 @@ from components.results_display import (
     display_q_vs_p_comparison,
     display_profitability_insight
 )
+from components.charts import (
+    plot_gbm_paths, 
+    plot_payout_diagram, 
+    plot_price_distribution
+)
+from components.optimization_display import (
+    display_optimization_button,
+    display_optimization_results,
+    display_optimization_summary_card
+)
+
+# Model imports
 from src.models import cox_ross_rubinstein, steve_shreve, drift_adjusted
 from src.gbm import GBM
 from src.payouts import IronCondorPayout, StraddlePayout, StranglePayout
 from src.analytics import CoxRossRubinsteinRW, SteveShreveRW, DriftAdjustedRW
+from src.optimize import optimize_strikes
 
 
 def setup_page_config():
@@ -30,7 +42,7 @@ def setup_page_config():
 
 
 def apply_custom_css():
-    """Apply custom CSS styling."""
+    """Apply custom CSS styling with proper contrast."""
     st.markdown("""
         <style>
         .main {
@@ -205,6 +217,7 @@ def calculate_prices(inputs):
         "Drift-Adjusted": {}
     }
     
+    # Calculate option prices for each strike
     for strike, strike_name in [(K1, "K1"), (K2, "K2"), (K3, "K3"), (K4, "K4")]:
         if strategy == "Iron Condor":
             option_type = "P" if strike_name in ["K1", "K2"] else "C"
@@ -217,6 +230,7 @@ def calculate_prices(inputs):
         results["Steve Shreve"][strike_name] = steve_shreve(S, strike, T, r, sigma, N, option_type)
         results["Drift-Adjusted"][strike_name] = drift_adjusted(S, strike, T, r, sigma, mu, N, option_type)
     
+    # Calculate initial capital based on strategy
     if strategy == "Iron Condor":
         results["CRR"]["Initial Capital"] = (
             results["CRR"]["K2"] + results["CRR"]["K3"] - 
@@ -239,10 +253,12 @@ def calculate_prices(inputs):
         results["Steve Shreve"]["Initial Capital"] = -(results["Steve Shreve"]["K1"] + results["Steve Shreve"]["K2"])
         results["Drift-Adjusted"]["Initial Capital"] = -(results["Drift-Adjusted"]["K1"] + results["Drift-Adjusted"]["K2"])
     
+    # Run GBM simulation
     gbm = GBM(mu=mu, sigma=sigma, n_steps=N, n_paths=n_paths, S0=S, T=T)
     paths = gbm.get_all_paths()
     final_prices = gbm.get_final_prices()
     
+    # Calculate payouts from GBM simulation
     if strategy == "Iron Condor":
         payout_calc = IronCondorPayout(K1, K2, K3, K4)
     elif strategy == "Straddle":
@@ -253,14 +269,17 @@ def calculate_prices(inputs):
     payout_values = payout_calc.calculate_payout(final_prices)
     avg_payout = np.mean(payout_values)
     
+    # Calculate GBM expected value (Q-measure from simulation)
     results["CRR"]["GBM Expected Value"] = results["CRR"]["Initial Capital"] - avg_payout
     results["Steve Shreve"]["GBM Expected Value"] = results["Steve Shreve"]["Initial Capital"] - avg_payout
     results["Drift-Adjusted"]["GBM Expected Value"] = results["Drift-Adjusted"]["Initial Capital"] - avg_payout
     
+    # Real-world probability analysis (P-measure)
     crr_rw = CoxRossRubinsteinRW(S, mu, r, sigma, T, N, K1, K2, K3, K4)
     shreve_rw = SteveShreveRW(S, mu, r, sigma, T, N, K1, K2, K3, K4)
     drift_rw = DriftAdjustedRW(S, mu, r, sigma, T, N, K1, K2, K3, K4)
     
+    # Calculate RW expected profits
     results["CRR"]["RW Expected Value"] = crr_rw.get_exp_profits(
         results["CRR"]["Initial Capital"], 
         payout_name
@@ -274,6 +293,7 @@ def calculate_prices(inputs):
         payout_name
     )
     
+    # Calculate probability of profit (only for Iron Condor)
     if strategy == "Iron Condor":
         results["CRR"]["Probability of Profit"] = crr_rw.get_prob_profit()
         results["Steve Shreve"]["Probability of Profit"] = shreve_rw.get_prob_profit()
@@ -283,6 +303,7 @@ def calculate_prices(inputs):
         results["Steve Shreve"]["Probability of Profit"] = None
         results["Drift-Adjusted"]["Probability of Profit"] = None
     
+    # Store simulation data
     results["simulation"] = {
         "paths": paths,
         "final_prices": final_prices,
@@ -304,14 +325,24 @@ def main():
     
     st.divider()
     
+    # Initialize session state
     if "calculated" not in st.session_state:
         st.session_state.calculated = False
     if "results" not in st.session_state:
         st.session_state.results = None
+    if "optimized" not in st.session_state:
+        st.session_state.optimized = False
+    if "opt_results" not in st.session_state:
+        st.session_state.opt_results = None
     
+    # Render sidebar and get inputs
     inputs = render_sidebar()
     st.session_state.inputs = inputs
     
+    # Add optimization button
+    optimize_button, grid_size = display_optimization_button(inputs)
+    
+    # Calculate button
     if st.sidebar.button("Calculate", type="primary"):
         with st.spinner("Calculating prices and running simulations..."):
             try:
@@ -322,6 +353,36 @@ def main():
             except Exception as e:
                 st.error(f"Calculation error: {str(e)}")
     
+    # Optimization button logic
+    if optimize_button:
+        if not st.session_state.calculated or st.session_state.results is None:
+            st.sidebar.error("Please calculate first before optimizing!")
+        else:
+            with st.spinner(f"Optimizing strikes ({grid_size} grid)... This may take a few minutes."):
+                try:
+                    # Get simulation data
+                    final_prices = st.session_state.results["simulation"]["final_prices"]
+                    
+                    # Run optimization
+                    opt_results = optimize_strikes(
+                        S=inputs["S"],
+                        r=inputs["r"],
+                        T=inputs["T"],
+                        sigma=inputs["sigma"],
+                        mu=inputs["mu"],
+                        final_prices=final_prices,
+                        N=inputs["N"],
+                        grid_size=grid_size,
+                        payout_name='iron_condor'
+                    )
+                    
+                    st.session_state.opt_results = opt_results
+                    st.session_state.optimized = True
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Optimization error: {str(e)}")
+    
+    # Display results
     if st.session_state.calculated and st.session_state.results:
         st.success("Calculation complete!")
         
@@ -393,6 +454,15 @@ def main():
                 Green bars represent prices where the strategy is profitable, red bars show losses.
                 The blue dashed line shows the theoretical lognormal distribution.
             """)
+        
+        # Add optimization results if available
+        if st.session_state.optimized and st.session_state.opt_results:
+            st.divider()
+            
+            display_optimization_summary_card(st.session_state.opt_results)
+            
+            with st.expander("Detailed Optimization Results", expanded=True):
+                display_optimization_results(st.session_state.opt_results, inputs)
         
     else:
         st.info("Configure your parameters in the sidebar and click Calculate to begin")
