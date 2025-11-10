@@ -47,6 +47,17 @@ from components.error_display import (
 )
 
 
+# Add caching for calculations
+@st.cache_data
+def cached_calculate_prices(S, K1, K2, K3, K4, T, r, sigma, mu, N, n_paths, strategy):
+    inputs = {
+        'S': S, 'K1': K1, 'K2': K2, 'K3': K3, 'K4': K4,
+        'T': T, 'r': r, 'sigma': sigma, 'mu': mu,
+        'N': N, 'n_paths': n_paths, 'strategy': strategy
+    }
+    return calculate_prices(inputs)
+
+
 def setup_page_config():
     """Configure Streamlit page settings."""
     st.set_page_config(
@@ -360,7 +371,6 @@ def main():
     
     # Calculate button with validation
     if st.sidebar.button("Calculate", type="primary"):
-        # Validate inputs first
         is_valid, error_message = validate_all_inputs(inputs)
         
         if not is_valid:
@@ -368,13 +378,18 @@ def main():
         else:
             with st.spinner("Calculating prices and running simulations..."):
                 try:
-                    results = calculate_prices(inputs)
+                    # Use cached calculation
+                    results = cached_calculate_prices(
+                        inputs['S'], inputs['K1'], inputs['K2'], inputs['K3'], inputs['K4'],
+                        inputs['T'], inputs['r'], inputs['sigma'], inputs['mu'],
+                        inputs['N'], inputs['n_paths'], inputs['strategy']
+                    )
                     st.session_state.results = results
                     st.session_state.calculated = True
                     st.rerun()
                 except Exception as e:
                     display_calculation_error(e)
-    
+
     # Optimization button logic with validation
     if optimize_button:
         if not st.session_state.calculated or st.session_state.results is None:
