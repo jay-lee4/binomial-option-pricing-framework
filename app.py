@@ -339,39 +339,60 @@ def main():
         
         st.divider()
         
-        display_pricing_results(st.session_state.results)
-        
-        st.divider()
-        
-        display_summary_metrics(st.session_state.results, inputs)
-        
-        st.divider()
-        
-        display_q_vs_p_comparison(st.session_state.results, inputs)
-        
-        st.divider()
-        
-        display_profitability_insight(st.session_state.results, inputs)
-
-        st.divider()
-        
-        # Calculate average initial capital across models for diagrams
+        # Calculate average initial capital across models
         avg_initial_capital = (
             st.session_state.results["CRR"]["Initial Capital"] +
             st.session_state.results["Steve Shreve"]["Initial Capital"] +
             st.session_state.results["Drift-Adjusted"]["Initial Capital"]
         ) / 3
         
-        # Display all charts
-        plot_gbm_paths(st.session_state.results["simulation"], inputs)
+        # Create tabs for organized display
+        tab1, tab2, tab3, tab4 = st.tabs([
+            "Main Results",
+            "Price Simulation", 
+            "Payoff Diagram",
+            "Distribution Analysis"
+        ])
         
-        st.divider()
+        with tab1:
+            display_pricing_results(st.session_state.results)
+            
+            st.divider()
+            
+            display_summary_metrics(st.session_state.results, inputs)
+            
+            st.divider()
+            
+            display_q_vs_p_comparison(st.session_state.results, inputs)
+            
+            st.divider()
+            
+            display_profitability_insight(st.session_state.results, inputs)
         
-        plot_payout_diagram(inputs, avg_initial_capital)
+        with tab2:
+            plot_gbm_paths(st.session_state.results["simulation"], inputs)
+            
+            st.markdown("""
+                **About this chart**: Shows simulated stock price paths using Geometric Brownian Motion.
+                The strike prices are marked to show where the strategy becomes profitable or unprofitable.
+            """)
         
-        st.divider()
+        with tab3:
+            plot_payout_diagram(inputs, avg_initial_capital)
+            
+            st.markdown("""
+                **About this chart**: Shows the profit/loss profile of the strategy at different final prices.
+                Breakeven points are marked with yellow diamonds.
+            """)
         
-        plot_price_distribution(st.session_state.results["simulation"], inputs, avg_initial_capital)
+        with tab4:
+            plot_price_distribution(st.session_state.results["simulation"], inputs, avg_initial_capital)
+            
+            st.markdown("""
+                **About this chart**: Histogram showing the distribution of simulated final prices.
+                Green bars represent prices where the strategy is profitable, red bars show losses.
+                The blue dashed line shows the theoretical lognormal distribution.
+            """)
         
     else:
         st.info("Configure your parameters in the sidebar and click Calculate to begin")
