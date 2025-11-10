@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 
 
 def display_optimization_button(inputs):
@@ -195,3 +196,190 @@ def display_optimization_summary_card(opt_results):
         K1 = ${best_strikes[0]:.0f}, K2 = ${best_strikes[1]:.0f}, 
         K3 = ${best_strikes[2]:.0f}, K4 = ${best_strikes[3]:.0f}
     """)
+
+
+def plot_optimal_comparison(current_inputs, opt_results, model_name='CRR'):
+    """
+    Plot side-by-side comparison of current vs optimal strikes.
+    
+    Args:
+        current_inputs: Dictionary of current user inputs
+        opt_results: Dictionary containing optimization results
+        model_name: Which model to show (CRR, Steve Shreve, or Drift-Adjusted)
+    """
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+    from src.payouts import IronCondorPayout
+    
+    # Current strikes
+    current_k1 = current_inputs['K1']
+    current_k2 = current_inputs['K2']
+    current_k3 = current_inputs['K3']
+    current_k4 = current_inputs['K4']
+    
+    # Optimal strikes
+    opt_k1, opt_k2, opt_k3, opt_k4 = opt_results[model_name]['RW_optimal_strikes']
+    
+    S = current_inputs['S']
+    
+    # Generate price range
+    price_range_min = min(current_k1, opt_k1, S) * 0.7
+    price_range_max = max(current_k4, opt_k4, S) * 1.3
+    final_prices = np.linspace(price_range_min, price_range_max, 200)
+    
+    # Calculate current payoff
+    current_payout = IronCondorPayout(current_k1, current_k2, current_k3, current_k4)
+    current_payout_values = current_payout.calculate_payout(final_prices)
+    
+    # Calculate optimal payoff
+    optimal_payout = IronCondorPayout(opt_k1, opt_k2, opt_k3, opt_k4)
+    optimal_payout_values = optimal_payout.calculate_payout(final_prices)
+    
+    # Create subplots
+    fig = make_subplots(
+        rows=1, cols=2,
+        subplot_titles=('Current Strikes', 'Optimal Strikes'),
+        horizontal_spacing=0.15
+    )
+    
+    # Current strikes plot
+    fig.add_trace(
+        go.Scatter(
+            x=final_prices,
+            y=-current_payout_values,
+            mode='lines',
+            line=dict(width=3, color='orange'),
+            fill='tozeroy',
+            fillcolor='rgba(255, 165, 0, 0.2)',
+            name='Current',
+            hovertemplate='Price: $%{x:.2f}<br>P/L: $%{y:.2f}<extra></extra>'
+        ),
+        row=1, col=1
+    )
+    
+    # Optimal strikes plot
+    fig.add_trace(
+        go.Scatter(
+            x=final_prices,
+            y=-optimal_payout_values,
+            mode='lines',
+            line=dict(width=3, color='green'),
+            fill='tozeroy',
+            fillcolor='rgba(0, 255, 0, 0.2)',
+            name='Optimal',
+            hovertemplate='Price: $%{x:.2f}<br>P/L: $%{y:.2f}<extra></extra>'
+        ),
+        row=1, col=2
+    )
+    
+    # Add current price lines
+    fig.add_vline(x=S, line_dash="solid", line_color="blue", line_width=2, row=1, col=1)
+    fig.add_vline(x=S, line_dash="solid", line_color="blue", line_width=2, row=1, col=2)
+    
+    # Add strike lines for current
+    fig.add_vline(x=current_k1, line_dash="dash", line_color="red", line_width=1, row=1, col=1)
+    fig.add_vline(x=current_k2, line_dash="dash", line_color="orange", line_width=1, row=1, col=1)
+    fig.add_vline(x=current_k3, line_dash="dash", line_color="orange", line_width=1, row=1, col=1)
+    fig.add_vline(x=current_k4, line_dash="dash", line_color="red", line_width=1, row=1, col=1)
+    
+    # Add strike lines for optimal
+    fig.add_vline(x=opt_k1, line_dash="dash", line_color="red", line_width=1, row=1, col=2)
+    fig.add_vline(x=opt_k2, line_dash="dash", line_color="orange", line_width=1, row=1, col=2)
+    fig.add_vline(x=opt_k3, line_dash="dash", line_color="orange", line_width=1, row=1, col=2)
+    fig.add_vline(x=opt_k4, line_dash="dash", line_color="red", line_width=1, row=1, col=2)
+    
+    # Update layout
+    fig.update_xaxes(title_text="Final Stock Price ($)", row=1, col=1)
+    fig.update_xaxes(title_text="Final Stock Price ($)", row=1, col=2)
+    fig.update_yaxes(title_text="Profit/Loss ($)", row=1, col=1)
+    fig.update_yaxes(title_text="Profit/Loss ($)", row=1, col=2)
+    
+    fig.update_layout(
+        height=500,
+        showlegend=True,
+        template='plotly_white',
+        title_text=f"Payoff Comparison - {model_name}"
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Show strike comparison table
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**Current Strikes**")
+        st.write(f"K1: ${current_k1:.0f}, K2: ${current_k2:.0f}, K3: ${current_k3:.0f}, K4: ${current_k4:.0f}")
+    
+    with col2:
+        st.markdown("**Optimal Strikes**")
+        st.write(f"K1: ${opt_k1:.0f}, K2: ${opt_k2:.0f}, K3: ${opt_k3:.0f}, K4: ${opt_k4:.0f}")
+
+
+def display_improvement_metrics(opt_results, current_results):
+    """
+    Display improvement metrics comparing current vs optimal.
+    
+    Args:
+        opt_results: Optimization results
+        current_results: Current calculation results
+    """
+    st.markdown("### Improvement Analysis")
+    
+    models = ['CRR', 'Steve Shreve', 'Drift-Adjusted']
+    
+    for model in models:
+        with st.expander(f"{model} Improvement", expanded=False):
+            col1, col2, col3 = st.columns(3)
+            
+            current_rw = current_results[model]['RW Expected Value']
+            optimal_rw = opt_results[model]['RW_max_profit']
+            improvement = optimal_rw - current_rw
+            improvement_pct = (improvement / abs(current_rw)) * 100 if current_rw != 0 else 0
+            
+            with col1:
+                st.metric("Current RW Profit", f"${current_rw:.2f}")
+            
+            with col2:
+                st.metric("Optimal RW Profit", f"${optimal_rw:.2f}")
+            
+            with col3:
+                st.metric(
+                    "Improvement",
+                    f"${improvement:.2f}",
+                    delta=f"{improvement_pct:.1f}%"
+                )
+            
+            if improvement > 0:
+                st.success(f"Optimal strikes improve expected profit by ${improvement:.2f}")
+            elif improvement < -0.5:
+                st.error(f"Current strikes are better by ${abs(improvement):.2f}")
+            else:
+                st.info("Strikes are approximately optimal")
+
+
+def display_apply_optimal_button(opt_results, model_name='CRR'):
+    """
+    Display button to apply optimal strikes to current configuration.
+    
+    Args:
+        opt_results: Optimization results
+        model_name: Which model's optimal strikes to apply
+        
+    Returns:
+        True if button was clicked
+    """
+    st.markdown("### Apply Optimal Strikes")
+    
+    st.info(f"""
+        Click below to update the sidebar parameters with the optimal strikes from **{model_name}**.
+        This will replace your current strike prices.
+    """)
+    
+    opt_k1, opt_k2, opt_k3, opt_k4 = opt_results[model_name]['RW_optimal_strikes']
+    
+    st.write(f"**Optimal strikes**: K1=${opt_k1:.0f}, K2=${opt_k2:.0f}, K3=${opt_k3:.0f}, K4=${opt_k4:.0f}")
+    
+    if st.button(f"Apply {model_name} Optimal Strikes", type="primary"):
+        return True, (opt_k1, opt_k2, opt_k3, opt_k4)
+    
+    return False, None

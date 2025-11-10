@@ -20,7 +20,10 @@ from components.charts import (
 from components.optimization_display import (
     display_optimization_button,
     display_optimization_results,
-    display_optimization_summary_card
+    display_optimization_summary_card,
+    plot_optimal_comparison,
+    display_improvement_metrics,
+    display_apply_optimal_button
 )
 
 # Model imports
@@ -42,7 +45,6 @@ def setup_page_config():
 
 
 def apply_custom_css():
-    """Apply custom CSS styling with proper contrast."""
     st.markdown("""
         <style>
         .main {
@@ -461,8 +463,40 @@ def main():
             
             display_optimization_summary_card(st.session_state.opt_results)
             
-            with st.expander("Detailed Optimization Results", expanded=True):
+            with st.expander("Detailed Optimization Results", expanded=False):
                 display_optimization_results(st.session_state.opt_results, inputs)
+                
+                st.divider()
+                
+                # Model selector for visualization
+                st.markdown("### Visual Comparison")
+                
+                selected_model = st.selectbox(
+                    "Select model to visualize",
+                    options=['CRR', 'Steve Shreve', 'Drift-Adjusted'],
+                    index=0
+                )
+                
+                plot_optimal_comparison(inputs, st.session_state.opt_results, selected_model)
+                
+                st.divider()
+                
+                display_improvement_metrics(st.session_state.opt_results, st.session_state.results)
+                
+                st.divider()
+                
+                # Apply optimal strikes
+                apply_clicked, optimal_strikes = display_apply_optimal_button(
+                    st.session_state.opt_results,
+                    selected_model
+                )
+                
+                if apply_clicked and optimal_strikes:
+                    st.session_state.inputs['K1'] = optimal_strikes[0]
+                    st.session_state.inputs['K2'] = optimal_strikes[1]
+                    st.session_state.inputs['K3'] = optimal_strikes[2]
+                    st.session_state.inputs['K4'] = optimal_strikes[3]
+                    st.success(f"Applied optimal strikes from {selected_model}! Scroll up and click Calculate to see results.")
         
     else:
         st.info("Configure your parameters in the sidebar and click Calculate to begin")
