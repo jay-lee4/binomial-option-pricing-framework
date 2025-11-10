@@ -1,4 +1,3 @@
-@ -1,16 +1,277 @@
 # Options Simulator
 
 A comprehensive options pricing and profitability analysis tool that compares risk-neutral pricing with real-world profitability for options strategies.
