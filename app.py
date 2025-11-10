@@ -33,6 +33,10 @@ from src.payouts import IronCondorPayout, StraddlePayout, StranglePayout
 from src.analytics import CoxRossRubinsteinRW, SteveShreveRW, DriftAdjustedRW
 from src.optimize import optimize_strikes
 
+# documentation
+from components.help_section import display_help_section, display_quick_reference
+from components.export_display import display_export_section
+
 
 def setup_page_config():
     """Configure Streamlit page settings."""
@@ -343,6 +347,7 @@ def main():
     
     # Add optimization button
     optimize_button, grid_size = display_optimization_button(inputs)
+    display_quick_reference()
     
     # Calculate button
     if st.sidebar.button("Calculate", type="primary"):
@@ -410,11 +415,12 @@ def main():
         ) / 3
         
         # Create tabs for organized display
-        tab1, tab2, tab3, tab4 = st.tabs([
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
             "Main Results",
             "Price Simulation", 
             "Payoff Diagram",
-            "Distribution Analysis"
+            "Distribution Analysis",
+            "Help & Export"
         ])
         
         with tab1:
@@ -456,6 +462,17 @@ def main():
                 Green bars represent prices where the strategy is profitable, red bars show losses.
                 The blue dashed line shows the theoretical lognormal distribution.
             """)
+        
+        with tab5:
+            display_help_section()
+            
+            st.divider()
+            
+            display_export_section(
+                st.session_state.results,
+                inputs,
+                st.session_state.opt_results if st.session_state.optimized else None
+            )
         
         # Add optimization results if available
         if st.session_state.optimized and st.session_state.opt_results:
