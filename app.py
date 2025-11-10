@@ -1,6 +1,7 @@
 import streamlit as st
 import numpy as np
 from config.settings import DEFAULT_PARAMS
+from components.charts import plot_gbm_paths
 from components.sidebar import render_sidebar
 from components.results_display import (
     display_pricing_results, 
@@ -35,11 +36,12 @@ def apply_custom_css():
         [data-testid="stMetricValue"] {
             font-size: 1.8rem;
             font-weight: 600;
+            color: #1e293b;
         }
         
         [data-testid="stMetricLabel"] {
             font-size: 0.9rem;
-            color: #6c757d;
+            color: #64748b;
             font-weight: 500;
         }
         
@@ -82,15 +84,43 @@ def apply_custom_css():
             transform: translateY(-1px);
         }
         
+        /* Sidebar styling - dark background */
         [data-testid="stSidebar"] {
-            background-color: #f8fafc;
+            background-color: #1e293b;
             padding: 2rem 1rem;
         }
         
         [data-testid="stSidebar"] h1, 
         [data-testid="stSidebar"] h2, 
-        [data-testid="stSidebar"] h3 {
-            color: #1e293b;
+        [data-testid="stSidebar"] h3,
+        [data-testid="stSidebar"] label,
+        [data-testid="stSidebar"] p,
+        [data-testid="stSidebar"] span {
+            color: #f1f5f9 !important;
+        }
+        
+        /* Sidebar input fields */
+        [data-testid="stSidebar"] .stNumberInput label,
+        [data-testid="stSidebar"] .stSelectbox label {
+            color: #e2e8f0 !important;
+        }
+        
+        [data-testid="stSidebar"] input,
+        [data-testid="stSidebar"] select {
+            background-color: #334155 !important;
+            color: #f1f5f9 !important;
+            border: 1px solid #475569 !important;
+        }
+        
+        /* Sidebar expander */
+        [data-testid="stSidebar"] .streamlit-expanderHeader {
+            background-color: #334155;
+            color: #f1f5f9 !important;
+        }
+        
+        /* Sidebar divider */
+        [data-testid="stSidebar"] hr {
+            border-color: #475569;
         }
         
         [data-testid="stDataFrame"] {
@@ -112,6 +142,8 @@ def apply_custom_css():
         .stSelectbox>div>div>select {
             border-radius: 0.375rem;
             border: 1px solid #cbd5e1;
+            background-color: white;
+            color: #1e293b;
         }
         
         .stTabs [data-baseweb="tab-list"] {
@@ -121,11 +153,13 @@ def apply_custom_css():
         .stTabs [data-baseweb="tab"] {
             padding: 0.5rem 1rem;
             font-weight: 600;
+            color: #475569;
         }
         
         .stTabs [aria-selected="true"] {
             background-color: #eff6ff;
             border-bottom: 2px solid #3b82f6;
+            color: #1e40af;
         }
         </style>
     """, unsafe_allow_html=True)
@@ -314,6 +348,10 @@ def main():
         st.divider()
         
         display_profitability_insight(st.session_state.results, inputs)
+
+        st.divider()
+        
+        plot_gbm_paths(st.session_state.results["simulation"], inputs)
         
     else:
         st.info("Configure your parameters in the sidebar and click Calculate to begin")
