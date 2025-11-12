@@ -25,16 +25,6 @@ class IronCondorPayout:
         self.K4 = K4
     
     def calculate_payout(self, final_prices: np.ndarray) -> np.ndarray:
-        """
-        Calculate payout at expiration for given final prices.
-        
-        Payout structure:
-        - S < K1: payout = K2 - K1 (max loss on put spread)
-        - K1 <= S < K2: payout = K2 - S (partial loss on put spread)
-        - K2 <= S < K3: payout = 0 (max profit zone)
-        - K3 <= S < K4: payout = S - K3 (partial loss on call spread)
-        - S >= K4: payout = K4 - K3 (max loss on call spread)
-        """
         if isinstance(final_prices, list):
             final_prices = np.array(final_prices)
         
@@ -72,11 +62,6 @@ class StraddlePayout:
         self.K = K
     
     def calculate_payout(self, final_prices: np.ndarray) -> np.ndarray:
-        """
-        Calculate payout at expiration.
-        
-        Payout = max(S - K, 0) + max(K - S, 0) = |S - K|
-        """
         if isinstance(final_prices, list):
             final_prices = np.array(final_prices)
         
@@ -108,13 +93,6 @@ class StranglePayout:
         self.K_call = K_call
     
     def calculate_payout(self, final_prices: np.ndarray) -> np.ndarray:
-        """
-        Calculate payout at expiration.
-        
-        Payout = max(K_put - S, 0) + max(S - K_call, 0)
-        - Profit when S < K_put or S > K_call
-        - Zero payout when K_put <= S <= K_call
-        """
         if isinstance(final_prices, list):
             final_prices = np.array(final_prices)
         

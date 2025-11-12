@@ -36,7 +36,10 @@ def exp_profits(
     q = 1 - p
     range_ = np.arange(n + 1)
     
+    # Terminal stock prices: S * u^(n-j) * d^j for j in [0, n]
     prices = S * (u_star ** (n - range_)) * (d_start ** range_)
+
+    # Binomial probability: P(j down moves) = C(n,j) * p^(n-j) * q^j
     probs = (p ** (n - range_)) * (q ** range_)
     freq_list = n_choose(n) * probs
     
@@ -105,7 +108,6 @@ class RWProbs(ABC):
         pass
     
     def get_exp_profits(self, initial_capital: float, payout_name: str = "iron_condor") -> float:
-        """Calculate expected profit under real-world measure."""
         return exp_profits(
             self.S, self.N, self.u_star, self.d_start,
             self.p, self.K1, self.K2, self.K3, self.K4,

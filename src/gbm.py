@@ -56,15 +56,11 @@ class GBM:
         self.paths = None
     
     def get_all_paths(self) -> np.ndarray:
-        """
-        Generate all price paths using GBM.
-        
-        Returns:
-            Array of shape (n_paths, n_steps+1) with simulated prices
-        """
         random_normals = np.random.randn(self.n_paths, self.n_steps)
         dW = random_normals * np.sqrt(self.dt)
         
+        # Ito's lemma drift correction: (μ - σ²/2) accounts for 
+        # quadratic variation in continuous-time limit
         dS = (self.mu - 0.5 * self.sigma ** 2) * self.dt + self.sigma * dW
         
         dS = np.column_stack([np.zeros(self.n_paths), dS])
@@ -75,24 +71,12 @@ class GBM:
         return self.paths
     
     def get_final_prices(self) -> np.ndarray:
-        """
-        Get final prices from all paths.
-        
-        Returns:
-            Array of shape (n_paths,) with terminal prices
-        """
         if self.paths is None:
             self.get_all_paths()
         
         return self.paths[:, -1]
     
     def to_dataframe(self) -> pd.DataFrame:
-        """
-        Convert simulation paths to pandas DataFrame for easy plotting.
-        
-        Returns:
-            DataFrame with time as index and each path as a column
-        """
         if self.paths is None:
             self.get_all_paths()
         
@@ -108,12 +92,6 @@ class GBM:
         return df
     
     def get_statistics(self) -> dict:
-        """
-        Calculate summary statistics for the simulated paths.
-        
-        Returns:
-            Dictionary with mean, std, min, max of final prices
-        """
         if self.paths is None:
             self.get_all_paths()
         

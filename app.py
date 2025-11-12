@@ -3,6 +3,11 @@ import numpy as np
 
 # Config imports
 from config.settings import DEFAULT_PARAMS
+from src.constants import (
+    HIGH_VOLATILITY_THRESHOLD,
+    LARGE_MU_R_DIFF_THRESHOLD,
+    SHORT_EXPIRY_THRESHOLD
+)
 
 # Component imports
 from components.sidebar import render_sidebar
@@ -207,7 +212,7 @@ def apply_custom_css():
     """, unsafe_allow_html=True)
 
 
-def calculate_prices(inputs):
+def calculate_prices(inputs: dict) -> dict:
     """
     Calculate option prices and expected values for all models.
     
@@ -230,12 +235,9 @@ def calculate_prices(inputs):
     n_paths = inputs["n_paths"]
     strategy = inputs["strategy"]
     
-    payout_map = {
-        "Iron Condor": "iron_condor",
-        "Straddle": "straddle",
-        "Strangle": "strangle"
-    }
-    payout_name = payout_map[strategy]
+    from src.constants import STRATEGY_TO_PAYOUT_NAME
+
+    payout_name = STRATEGY_TO_PAYOUT_NAME[strategy]
     
     results = {
         "CRR": {},
@@ -243,7 +245,7 @@ def calculate_prices(inputs):
         "Drift-Adjusted": {}
     }
     
-    # Calculate option prices for each strike
+    # STEP 1: Calculate option prices for each strike
     for strike, strike_name in [(K1, "K1"), (K2, "K2"), (K3, "K3"), (K4, "K4")]:
         if strategy == "Iron Condor":
             option_type = "P" if strike_name in ["K1", "K2"] else "C"
@@ -256,7 +258,7 @@ def calculate_prices(inputs):
         results["Steve Shreve"][strike_name] = steve_shreve(S, strike, T, r, sigma, N, option_type)
         results["Drift-Adjusted"][strike_name] = drift_adjusted(S, strike, T, r, sigma, mu, N, option_type)
     
-    # Calculate initial capital based on strategy
+    # STEP 2: Calculate initial capital (premium collected)
     if strategy == "Iron Condor":
         results["CRR"]["Initial Capital"] = (
             results["CRR"]["K2"] + results["CRR"]["K3"] - 
@@ -279,12 +281,11 @@ def calculate_prices(inputs):
         results["Steve Shreve"]["Initial Capital"] = -(results["Steve Shreve"]["K1"] + results["Steve Shreve"]["K2"])
         results["Drift-Adjusted"]["Initial Capital"] = -(results["Drift-Adjusted"]["K1"] + results["Drift-Adjusted"]["K2"])
     
-    # Run GBM simulation
+    # STEP 3: Monte Carlo simulation
     gbm = GBM(mu=mu, sigma=sigma, n_steps=N, n_paths=n_paths, S0=S, T=T)
     paths = gbm.get_all_paths()
     final_prices = gbm.get_final_prices()
     
-    # Calculate payouts from GBM simulation
     if strategy == "Iron Condor":
         payout_calc = IronCondorPayout(K1, K2, K3, K4)
     elif strategy == "Straddle":
@@ -295,12 +296,12 @@ def calculate_prices(inputs):
     payout_values = payout_calc.calculate_payout(final_prices)
     avg_payout = np.mean(payout_values)
     
-    # Calculate GBM expected value (Q-measure from simulation)
+    # STEP 4: Calculate expected values
     results["CRR"]["GBM Expected Value"] = results["CRR"]["Initial Capital"] - avg_payout
     results["Steve Shreve"]["GBM Expected Value"] = results["Steve Shreve"]["Initial Capital"] - avg_payout
     results["Drift-Adjusted"]["GBM Expected Value"] = results["Drift-Adjusted"]["Initial Capital"] - avg_payout
     
-    # Real-world probability analysis (P-measure)
+    # (Tree-based P-measure)
     crr_rw = CoxRossRubinsteinRW(S, mu, r, sigma, T, N, K1, K2, K3, K4)
     shreve_rw = SteveShreveRW(S, mu, r, sigma, T, N, K1, K2, K3, K4)
     drift_rw = DriftAdjustedRW(S, mu, r, sigma, T, N, K1, K2, K3, K4)
@@ -442,13 +443,13 @@ def main():
             st.metric("Time to Expiry", f"{inputs['T']:.2f} years")
         
         # Display warnings for edge cases
-        if inputs['sigma'] > 0.50:
+        if inputs['sigma'] > HIGH_VOLATILITY_THRESHOLD:
             display_warning_banner("High volatility detected. Results may be less reliable.")
         
-        if inputs['mu'] - inputs['r'] > 0.10:
+        if abs(inputs['mu'] - inputs['r']) > LARGE_MU_R_DIFF_THRESHOLD:
             display_warning_banner("Large difference between expected return and risk-free rate. This may indicate aggressive assumptions.")
         
-        if inputs['T'] < 0.08:  # Less than 1 month
+        if inputs['T'] < SHORT_EXPIRY_THRESHOLD:
             display_warning_banner("Very short time to expiration. Option values may be highly sensitive to small changes.")
         
         st.divider()
